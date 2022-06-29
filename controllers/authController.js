@@ -17,6 +17,7 @@ const signup = catchErrorAsync(async (req, res, next) => {
     password: req.body.password,
     photo: req.body.photo,
     passwordConfirm: req.body.passwordConfirm,
+    passwordChangedDate: req.body.passwordChangedDate,
   });
 
   const token = createToken(newUser._id);
@@ -38,7 +39,7 @@ const login = catchErrorAsync(async (req, res, next) => {
   }
 
   // 2) Shunaqa odam bormi yuqmi shuni tekshirish
-  const user = await User.findOne({ email });
+  const user = await User.findOne({ email }).select('password');
   if (!user) {
     return next(
       new AppError('Bunday user mavjud emas. Iltimos royxatdan uting!', 404)
@@ -85,17 +86,59 @@ const protect = catchErrorAsync(async (req, res, next) => {
 
   console.log(jwt.verify(token, process.env.JWT_SECRET));
 
-  const tekshir = jwt.verify(token, process.env.JWT_SECRET);
+  const tokencha = jwt.verify(token, process.env.JWT_SECRET);
 
-  if (!tekshir) {
+  // 3) Token ichidan idni olib databasedagi userni topamiz.
+  const user = await User.findById(tokencha.id);
+  if (!user) {
     return next(
-      new AppError('Bunday token mavjud emas. Iltimos qayta tizimga kiring!')
+      new AppError(
+        'Bunday user mavjud emas! Iltimos tizimga qayta kiring!',
+        401
+      )
     );
   }
 
-  // 3) Token ichidan idni olib databasedagi userni topamiz.
+  // 4) Agar parol o'zgargan bo'lsa tokenni amal qilmasligini tekshirish
+
+  if (user.passwordChangedDate) {
+    if (tokencha.iat < user.passwordChangedDate.getTime() / 1000) {
+      return next(
+        new AppError(
+          'Siz tokeningz yaroqsiz! Iltimos qayta tizimga kiring!',
+          401
+        )
+      );
+    }
+  }
+
+  req.user = user;
 
   next();
 });
 
-module.exports = { signup, login, protect };
+const role = (roles) => {
+  return catchErrorAsync(async (req, res, next) => {
+    // 1) User ni roleni Database dan olamiz
+
+    if (!roles.includes(req.user.role)) {
+      return next(
+        new AppError('Siz bu amaliyotni bajarish huquqiga ega emassiz!', 404)
+      );
+    }
+    next();
+  });
+};
+
+const forgotPassword = catchErrorAsync(async (req, res, next) => {
+  // 1) Email bor yo'qligini tekshirish
+
+  if (!req.body.email) {
+    return;
+  }
+  // 2) Userni email orqali Database dan tekshirish
+  // 3) ResetToken yaratib berish
+  // 4) Email ga jo'natish ResetTokenni
+});
+
+module.exports = { signup, login, protect, role, forgotPassword };
